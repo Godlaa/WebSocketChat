@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-interface Room {
-  id: number;
-  name?: string;
-}
+interface Room { id: number; name?: string; }
 
 export function RoomsListPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -26,7 +23,7 @@ export function RoomsListPage() {
       body: JSON.stringify({ name: newName })
     })
       .then(res => res.json())
-      .then((room: Room) => {
+      .then(room => {
         setRooms(r => [...r, room]);
         setNewName("");
       })
@@ -35,20 +32,16 @@ export function RoomsListPage() {
 
   const deleteRoom = (id: number) => {
     fetch(`http://localhost:5000/rooms/${id}`, { method: "DELETE" })
-      .then(res => {
-        if (res.ok) setRooms(r => r.filter(x => x.id !== id));
-      })
+      .then(res => { if (res.ok) setRooms(r => r.filter(x => x.id !== id)); })
       .catch(console.error);
   };
 
   return (
     <div className="bg-dark text-light min-vh-100 p-4">
+      {/* Список комнат */}
       <div className="rounded border border-secondary p-4 mb-4">
         {rooms.map(room => (
-          <div
-            key={room.id}
-            className="d-flex align-items-center mb-3"
-          >
+          <div key={room.id} className="d-flex align-items-center mb-3">
             <div className="flex-grow-1 bg-secondary text-light rounded-pill py-2 px-4">
               Комната {room.name}
             </div>
@@ -68,6 +61,7 @@ export function RoomsListPage() {
         ))}
       </div>
 
+      {/* Создание новой комнаты */}
       <div className="rounded border border-secondary p-4">
         <label className="form-label mb-2">Название комнаты</label>
         <div className="d-flex">

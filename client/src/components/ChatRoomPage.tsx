@@ -1,63 +1,74 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-interface ChatMessage {
-  id: number;
-  text: string;
-}
+interface ChatMessage { id: number; text: string; }
 
 export function ChatRoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<WebSocket>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!roomId) return;
-    const ws = new WebSocket("ws://localhost:5000/ws");
-    socketRef.current = ws;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join", roomId: Number(roomId) }));
-    };
+    // 1) Запрашиваем у роутера адрес WebSocket-сервера
+    fetch(`http://localhost:5000/rooms/${roomId}/join`)
+      .then(res => res.json())
+      .then(({ wsUrl }: { wsUrl: string }) => {
+        const ws = new WebSocket(wsUrl.replace('0.0.0.0', 'localhost'));
+        socketRef.current = ws;
 
-    ws.onmessage = ev => {
-      const msg = JSON.parse(ev.data);
-      switch (msg.type) {
-        case "history":
-          setMessages(msg.messages);
-          break;
-        case "message":
-          setMessages(m => [...m, msg.message]);
-          break;
-        case "roomDeleted":
-          alert("Комната удалена");
-          navigate("/");
-          break;
-      }
-    };
+        ws.onopen = () => {
+          console.log("WS connected to", wsUrl);
+        };
 
-    return () => ws.close();
+        ws.onmessage = ev => {
+          const msg = JSON.parse(ev.data);
+
+          if (msg.type === "history") {
+            const parsed = msg.messages.map((m: {id:number; text:string}) => {
+              const inner = JSON.parse(m.text) as { type:string; text:string };
+              return { id: m.id, text: inner.text };
+            });
+            setMessages(parsed);
+          }
+        
+          if (msg.type === "message") {
+            const inner = JSON.parse(msg.text) as { type:string; text:string };
+            setMessages(prev => [...prev, { id: Date.now(), text: inner.text }]);
+          }
+        };
+
+        ws.onerror = console.error;
+        ws.onclose = () => console.log("WS closed");
+      })
+      .catch(console.error);
   }, [roomId, navigate]);
 
   const sendMessage = () => {
-    if (!socketRef.current || inputText.trim() === "") return;
-    socketRef.current.send(
-      JSON.stringify({ type: "message", roomId: Number(roomId), text: inputText })
-    );
+    if (!socketRef.current || !inputText.trim()) return;
+    socketRef.current.send(inputText);
+    setMessages(prev => [
+      ...prev,
+      { id: Date.now(), type: 'message', text: inputText }
+    ]);
     setInputText("");
   };
 
   const deleteRoom = () => {
-    socketRef.current?.send(
-      JSON.stringify({ type: "deleteRoom", roomId: Number(roomId) })
-    );
+    // Удаляем комнату через HTTP и возвращаемся на список
+    fetch(`http://localhost:5000/rooms/${roomId}`, { method: "DELETE" })
+      .then(res => {
+        if (res.ok) navigate("/");
+      })
+      .catch(console.error);
   };
 
   return (
     <div className="bg-dark text-light min-vh-100 p-4 d-flex flex-column">
-      {/* Верхние кнопки */}
+      {/* Кнопки */}
       <div className="d-flex justify-content-end mb-4">
         <button
           className="btn btn-outline-light me-2 rounded-pill px-3"
