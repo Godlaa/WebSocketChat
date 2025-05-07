@@ -12,11 +12,10 @@ export function RoomsListPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // fetch("http://localhost:5000/rooms")
-    //   .then(res => res.json())
-    //   .then(setRooms)
-    //   .catch(console.error);
-    setRooms([{id: 1, name: 'room 1'}, {id: 2, name: 'room 2'}]);
+    fetch("http://localhost:5000/rooms")
+      .then(res => res.json())
+      .then(setRooms)
+      .catch(console.error);
   }, []);
 
   const createRoom = () => {
