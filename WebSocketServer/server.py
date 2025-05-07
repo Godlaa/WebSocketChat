@@ -1,56 +1,76 @@
-import argparse
 import os
 import asyncio
-import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from db import db
 from master_client import MasterClient
 
-app = FastAPI()
-clients = {}
+# читаем HOST/PORT из окружения до объявления endpoint-ов
+HOST = os.getenv("HOST", "localhost")
+PORT = int(os.getenv("PORT", "8080"))
 
-# Вызывается автоматически FastAPI при запуске сервера.
-# Подключает сервер к БД и запускает фоновый asyncio-поток, который соединяется с мастером
+app = FastAPI()
+clients: dict[str, set[WebSocket]] = {}
+
 @app.on_event("startup")
 async def startup():
     await db.connect()
+    # запускаем фоновый клиент MasterNode
     asyncio.create_task(start_master_client())
 
-
-# WebSocket endpoint, к которому подключаются клиенты.
-@app.websocket("/ws/{room}/{username}")
-async def websocket_endpoint(websocket: WebSocket, room: str, username: str):
+@app.websocket("/ws/{room}")
+async def websocket_endpoint(websocket: WebSocket, room: str):
     await websocket.accept()
     clients.setdefault(room, set()).add(websocket)
-    await db.register_room(room, f"{HOST}:{PORT}")
+
+    # Зарегистрировать комнату (привязать к этому WS-серверу)
+    await db.register_room(room, HOST, PORT)
+
+    # 1) При подключении сразу высылаем историю
+    history = await db.get_history(int(room))
+    await websocket.send_json({
+        "type": "history",
+        "messages": [{"id": r["id"], "text": r["text"]} for r in history]
+    })
+
     try:
         while True:
-            data = await websocket.receive_text() # читаем кто что отправил
-            await db.save_message(room, username, data)
-            for client in clients[room]: # отправляем всем остальным
-                if client != websocket:
-                    await client.send_text(f"{username}: {data}")
+            data = await websocket.receive_text()
+            rec = await db.save_message(int(room), data)
+            new_msg = {
+                "type": "message",
+                "message": {
+                    "id": rec,
+                    "text": data
+                }
+            }
+            for client in clients[room]:
+                await client.send_json(new_msg)
     except WebSocketDisconnect:
         clients[room].remove(websocket)
 
-# Это ваще кто
-@app.get("/history/{room}")
-async def get_history(room: str):
-    records = await db.get_history(room)
-    return [{"sender": r["sender"], "content": r["content"], "timestamp": r["timestamp"]} for r in records]
-
-# ----- Startup logic -----
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--port", required=True)
-    return parser.parse_args()
-
-args = parse_args()
-HOST, PORT = args.host, int(args.port)
-
+@app.post("/rooms/{room}/message")
+async def post_message(room: str, body: MessageIn):
+    """Принимает POST /rooms/{room}/message с JSON {text:string}"""
+    room_id = int(room)
+    # 1) сохраняем в БД
+    rec_id = await db.save_message(room_id, body.text)
+    # 2) готовим полезлоад
+    payload = {"type":"message","message":{"id":rec_id,"text":body.text}}
+    # 3) рассылаем всем подключённым в этой комнате
+    if room not in clients:
+        raise HTTPException(404, f"Комната {room} не найдена")
+    for ws in set(clients[room]):
+        await ws.send_json(payload)
+    return {"status":"ok","id":rec_id}
+    
 async def start_master_client():
-    master_url = os.getenv("MASTER_URL", "ws://master:9000/ws")
+    master_url = os.getenv("MASTER_URL", "")
     client = MasterClient(master_url, f"{HOST}:{PORT}")
     await client.connect()
+
+# —————— точка входа ——————
+
+if __name__ == "__main__":
+    # Запускаем Uvicorn
+    import uvicorn
+    uvicorn.run("server:app", host=HOST, port=PORT)
