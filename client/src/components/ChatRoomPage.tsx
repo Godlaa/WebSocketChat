@@ -1,70 +1,109 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-interface ChatMessage { id?: number; type?: string; text: string; }
+interface ChatMessage { id: number; text: string; }
+interface RoomsWsMsg {
+  messages: any;
+  type: "list" | "created" | "deleted" | "join" | "joinError";
+  rooms?: { id: number; name: string }[];
+  room?: { id: number; name: string };
+  id?: number;
+  wsUrl?: string;
+  error?: string;
+}
 
 export function ChatRoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
-  const socketRef = useRef<WebSocket>(null);
-  const navigate = useNavigate();
+  const roomsWsRef = useRef<WebSocket>(null);
+  const chatWsRef  = useRef<WebSocket>(null);
+  const navigate   = useNavigate();
 
   useEffect(() => {
     if (!roomId) return;
 
-    // 1) Запрашиваем у роутера адрес WebSocket-сервера
-    fetch(`http://localhost:5000/rooms/${roomId}/join`)
-      .then(res => res.json())
-      .then(({ wsUrl }: { wsUrl: string }) => {
-        const ws = new WebSocket(wsUrl.replace('0.0.0.0', 'localhost'));
-        socketRef.current = ws;
+    // 1) Открываем WS к роутеру для работы с комнатами
+    const roomsWs = new WebSocket(`ws://localhost:5000/rooms-ws`);
+    roomsWsRef.current = roomsWs;
 
-        ws.onopen = () => {
-          console.log("WS connected to", wsUrl);
+    roomsWs.onopen = () => {
+      // просим URL чата для нашей комнаты
+      roomsWs.send(JSON.stringify({
+        type: "join",
+        payload: { id: Number(roomId) }
+      }));
+    };
+
+    roomsWs.onmessage = ev => {
+      const msg = JSON.parse(ev.data) as RoomsWsMsg;
+
+      if (msg.type === "joinError") {
+        alert(msg.error);
+        navigate("/");
+        return;
+      }
+
+      if (msg.type === "join" && msg.wsUrl) {
+        const chatWs = new WebSocket(msg.wsUrl.replace("0.0.0.0", window.location.hostname));
+        chatWsRef.current = chatWs;
+
+        chatWs.onopen = () => {
+          console.log("Chat WS connected to", msg.wsUrl);
         };
 
-        ws.onmessage = ev => {
-          const msg = JSON.parse(ev.data) as {
-            type: string;
+        chatWs.onmessage = cev => {
+          const cmsg = JSON.parse(cev.data) as {
+            type: "history" | "message" | "roomDeleted";
             message?: { id: number; text: string };
             messages?: any []
           };
 
-          if (msg.type === "history" && msg.messages) {
-            const parsed = msg.messages.map((m: {id:number; text:string}) => {
+          if (cmsg.type === "history" && cmsg.messages) {
+            const parsed = cmsg.messages.map((m: {id:number; text:string}) => {
               const inner = JSON.parse(m.text) as { type:string; text:string };
               return { id: m.id, text: inner.text };
             });
             setMessages(parsed);
           }
-        
-          if (msg.type === "message" && msg.message) {
-            const { id, text } = msg.message;
+
+          if (cmsg.type === "message" && cmsg.message) {
+            const { id, text } = cmsg.message;
             const inner = JSON.parse(text) as { type: string; text: string };
               setMessages(prev => [...prev, { id, text: inner.text }]);
           }
+
+          if (cmsg.type === "roomDeleted") {
+            alert("Комната удалена");
+            navigate("/");
+          }
         };
 
-        ws.onerror = console.error;
-        ws.onclose = () => console.log("WS closed");
-      })
-      .catch(console.error);
+        chatWs.onerror = console.error;
+      }
+    };
+
+    roomsWs.onerror = console.error;
+
+    return () => {
+      roomsWs.close();
+      chatWsRef.current?.close();
+    };
   }, [roomId, navigate]);
 
   const sendMessage = () => {
-    if (!socketRef.current || !inputText.trim()) return;
-    socketRef.current?.send(JSON.stringify({ type: "message", text: inputText }));
+    const chatWs = chatWsRef.current;
+    if (!chatWs || !inputText.trim()) return;
+
+    chatWs.send(JSON.stringify({ type: "message", text: inputText }));
     setInputText("");
   };
 
   const deleteRoom = () => {
-    // Удаляем комнату через HTTP и возвращаемся на список
-    fetch(`http://localhost:5000/rooms/${roomId}`, { method: "DELETE" })
-      .then(res => {
-        if (res.ok) navigate("/");
-      })
-      .catch(console.error);
+    roomsWsRef.current?.send(
+      JSON.stringify({ type: "delete", payload: { id: Number(roomId) } })
+    );
+    navigate("/");
   };
 
   return (
@@ -93,7 +132,7 @@ export function ChatRoomPage() {
         {messages.map(m => (
           <div
             key={m.id}
-            className="bg-secondary text-light rounded-pill py-2 px-4 mb-3 align-self-start"
+            className="bg-secondary text-light rounded-pill py-2 px-4 mb-3"
             style={{ maxWidth: "70%" }}
           >
             {m.text}

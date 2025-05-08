@@ -1,39 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-interface Room { id: number; name?: string; }
+interface Room { id: number; name: string; }
 
 export function RoomsListPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newName, setNewName] = useState("");
+  const wsRef = useRef<WebSocket>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch("http://localhost:5000/rooms")
-      .then(res => res.json())
-      .then(setRooms)
-      .catch(console.error);
+    const ws = new WebSocket("ws://localhost:5000/rooms-ws");
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "list" }));
+    };
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data) as any;
+      switch (msg.type) {
+        case "list":
+          setRooms(msg.rooms);
+          break;
+        case "created":
+          setRooms(r => [...r, msg.room]);
+          break;
+        case "deleted":
+          setRooms(r => r.filter(x => x.id !== msg.id));
+          break;
+      }
+    };
+    ws.onerror = console.error;
+    return () => { ws.close(); };
   }, []);
 
   const createRoom = () => {
     if (!newName.trim()) return;
-    fetch("http://localhost:5000/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName })
-    })
-      .then(res => res.json())
-      .then(room => {
-        setRooms(r => [...r, room]);
-        setNewName("");
-      })
-      .catch(console.error);
+    wsRef.current?.send(JSON.stringify({ type: "create", payload: { name: newName } }));
+    setNewName("");
   };
 
   const deleteRoom = (id: number) => {
-    fetch(`http://localhost:5000/rooms/${id}`, { method: "DELETE" })
-      .then(res => { if (res.ok) setRooms(r => r.filter(x => x.id !== id)); })
-      .catch(console.error);
+    wsRef.current?.send(JSON.stringify({ type: "delete", payload: { id } }));
   };
 
   return (
