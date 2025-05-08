@@ -10,7 +10,7 @@ app.use(express.json());
 // Получить список комнат
 app.get("/rooms", async (_, res) => {
   try {
-    const { rows } = await pool.query("SELECT id, name FROM room");
+    const { rows } = await pool.query("SELECT id, name FROM room ORDER BY id ASC");
     res.json(rows);
   } catch (err) {
     console.error("Ошибка при получении комнат:", err);

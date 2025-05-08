@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-interface ChatMessage { id: number; text: string; }
+interface ChatMessage { id?: number; type?: string; text: string; }
 
 export function ChatRoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -25,9 +25,13 @@ export function ChatRoomPage() {
         };
 
         ws.onmessage = ev => {
-          const msg = JSON.parse(ev.data);
+          const msg = JSON.parse(ev.data) as {
+            type: string;
+            message?: { id: number; text: string };
+            messages?: any []
+          };
 
-          if (msg.type === "history") {
+          if (msg.type === "history" && msg.messages) {
             const parsed = msg.messages.map((m: {id:number; text:string}) => {
               const inner = JSON.parse(m.text) as { type:string; text:string };
               return { id: m.id, text: inner.text };
@@ -35,9 +39,10 @@ export function ChatRoomPage() {
             setMessages(parsed);
           }
         
-          if (msg.type === "message") {
-            const inner = JSON.parse(msg.text) as { type:string; text:string };
-            setMessages(prev => [...prev, { id: Date.now(), text: inner.text }]);
+          if (msg.type === "message" && msg.message) {
+            const { id, text } = msg.message;
+            const inner = JSON.parse(text) as { type: string; text: string };
+              setMessages(prev => [...prev, { id, text: inner.text }]);
           }
         };
 
@@ -49,11 +54,7 @@ export function ChatRoomPage() {
 
   const sendMessage = () => {
     if (!socketRef.current || !inputText.trim()) return;
-    socketRef.current.send(inputText);
-    setMessages(prev => [
-      ...prev,
-      { id: Date.now(), type: 'message', text: inputText }
-    ]);
+    socketRef.current?.send(JSON.stringify({ type: "message", text: inputText }));
     setInputText("");
   };
 

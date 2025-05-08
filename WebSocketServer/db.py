@@ -20,45 +20,44 @@ class Database:
             print(f"Неизвестная ошибка при инициализации пула соединений: {e}")
             raise
 
-    async def register_room(self, name: str, server_host: str, server_port: int):
+    async def register_room(self, room_id: int, server_host: str, server_port: int):
         """
-        Ищет в currentNodes → currentConfiguration запись WebSocketServer по ip+port,
-        получает её id и сохраняет в поле deployed_id таблицы room.
+        Обновляем deployed_id для уже существующей комнаты по её id,
+        а не создаём новую комнату.
+        """
+        async with self.pool.acquire() as conn:
+            # 1) Находим конфиг-цель (currentConfiguration.id) по host+port
+            rec = await conn.fetchrow(
+                'SELECT cc.id '
+                'FROM "currentConfiguration" cc '
+                'JOIN "currentNodes" cn ON cc."nodeId" = cn.id '
+                'WHERE cn.ip = $1 AND cc.port = $2 AND cc.type = $3',
+                server_host, server_port, "WebSocketServer"
+            )
+            if not rec:
+                raise RuntimeError(f"WS-сервер {server_host}:{server_port} не зарегистрирован")
+            config_id = rec["id"]
+
+            # 2) Обновляем запись в таблице room по её id
+            await conn.execute(
+                'UPDATE "room" '
+                'SET "deployed_id" = $1 '
+                'WHERE id = $2',
+                config_id, room_id
+            )
+
+    async def save_message(self, room_id: int, text: str) -> int:
+        """
+        Сохраняет сообщение в таблицу message и возвращает его новый id.
         """
         try:
             async with self.pool.acquire() as conn:
-                rec = await conn.fetchrow(
-                    'SELECT cc.id '
-                    'FROM "currentConfiguration" cc '
-                    'JOIN "currentNodes" cn ON cc."nodeId" = cn.id '
-                    'WHERE cn.ip = $1 AND cc.port = $2 AND cc.type = $3',
-                    server_host, server_port, "WebSocketServer"
-                )
-                if rec is None:
-                    raise RuntimeError(f"WebSocketServer {server_host}:{server_port} не зарегистрирован в currentConfiguration")
-                deployed_id = rec["id"]
-
-                await conn.execute(
-                    'INSERT INTO "room"(name, "deployed_id") '
-                    'VALUES ($1, $2) '
-                    'ON CONFLICT (name) DO UPDATE SET "deployed_id" = EXCLUDED."deployed_id"',
-                    name, deployed_id
-                )
-        except asyncpg.PostgresError as e:
-            print(f"Ошибка SQL при регистрации комнаты '{name}': {e}")
-            raise
-        except Exception as e:
-            print(f"Неизвестная ошибка в register_room: {e}")
-            raise
-
-    async def save_message(self, room_id: int, text: str):
-        """Сохраняет сообщение в таблицу message."""
-        try:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    'INSERT INTO "message"(room_id, text) VALUES ($1, $2)',
+                # выполняем INSERT с RETURNING id
+                rec_id = await conn.fetchval(
+                    'INSERT INTO "message"(room_id, text) VALUES ($1, $2) RETURNING id',
                     room_id, text
                 )
+                return rec_id
         except asyncpg.PostgresError as e:
             print(f"Ошибка SQL при сохранении сообщения для room_id={room_id}: {e}")
             raise

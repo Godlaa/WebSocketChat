@@ -17,16 +17,16 @@ async def startup():
     # запускаем фоновый клиент MasterNode
     asyncio.create_task(start_master_client())
 
-@app.websocket("/ws/{room}")
-async def websocket_endpoint(websocket: WebSocket, room: str):
+@app.websocket("/ws/{room_id}")
+async def websocket_endpoint(websocket: WebSocket, room_id: int):
     await websocket.accept()
-    clients.setdefault(room, set()).add(websocket)
+    clients.setdefault(room_id, set()).add(websocket)
 
     # Зарегистрировать комнату (привязать к этому WS-серверу)
-    await db.register_room(room, HOST, PORT)
+    await db.register_room(room_id, HOST, PORT)
 
     # 1) При подключении сразу высылаем историю
-    history = await db.get_history(int(room))
+    history = await db.get_history(int(room_id))
     await websocket.send_json({
         "type": "history",
         "messages": [{"id": r["id"], "text": r["text"]} for r in history]
@@ -34,34 +34,23 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
 
     try:
         while True:
+            # Получаем текст от клиента
             data = await websocket.receive_text()
-            rec = await db.save_message(int(room), data)
+            # Сохраняем и получаем id новой записи
+            new_id = await db.save_message(room_id, data)
+            # Готовим полезлоад
             new_msg = {
                 "type": "message",
                 "message": {
-                    "id": rec,
+                    "id": new_id,
                     "text": data
                 }
             }
-            for client in clients[room]:
-                await client.send_json(new_msg)
+            # Рассылаем всем в комнате
+            for ws in clients[room_id]:
+                await ws.send_json(new_msg)
     except WebSocketDisconnect:
-        clients[room].remove(websocket)
-
-@app.post("/rooms/{room}/message")
-async def post_message(room: str, body: MessageIn):
-    """Принимает POST /rooms/{room}/message с JSON {text:string}"""
-    room_id = int(room)
-    # 1) сохраняем в БД
-    rec_id = await db.save_message(room_id, body.text)
-    # 2) готовим полезлоад
-    payload = {"type":"message","message":{"id":rec_id,"text":body.text}}
-    # 3) рассылаем всем подключённым в этой комнате
-    if room not in clients:
-        raise HTTPException(404, f"Комната {room} не найдена")
-    for ws in set(clients[room]):
-        await ws.send_json(payload)
-    return {"status":"ok","id":rec_id}
+        clients[room_id].remove(websocket)
     
 async def start_master_client():
     master_url = os.getenv("MASTER_URL", "")
