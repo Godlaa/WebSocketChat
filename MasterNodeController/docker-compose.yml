@@ -1,0 +1,16 @@
+services:
+  mn-controller:
+    build: .
+    env_file:
+      - ./.env      # PGHOST=db, PGUSER=postgres, PGPASSWORD=12345, PGDATABASE=chatdb, PGPORT=5432, PORT=5000
+    ports:
+      - "6000:6000"
+    environment:
+      PGHOST: '192.168.1.195'
+      PGPORT: "5433"
+      PGDATABASE: chatdb
+      PGUSER: postgres
+      PGPASSWORD: 12345
+    volumes:
+      - ./keys:/common
+      
