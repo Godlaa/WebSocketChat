@@ -6,11 +6,24 @@ interface Room { id: number; name: string; }
 export function RoomsListPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newName, setNewName] = useState("");
+  const [routerLink, setRouterLink] = useState<string>('');
   const wsRef = useRef<WebSocket>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:5000/rooms-ws");
+    fetch('/config/routerConfig.json')  // file placed in public/data.json
+        .then(response => response.json())
+        .then(json => {
+          setRouterLink(`${json.routerIp}:${json.routerPort}`)
+        })
+        .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if(routerLink === ''){
+      return
+    }
+    const ws = new WebSocket(`ws://${routerLink}/rooms-ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -32,7 +45,7 @@ export function RoomsListPage() {
     };
     ws.onerror = console.error;
     return () => { ws.close(); };
-  }, []);
+  }, [routerLink]);
 
   const createRoom = () => {
     if (!newName.trim()) return;

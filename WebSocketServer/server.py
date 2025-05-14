@@ -54,7 +54,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int):
     
 async def start_master_client():
     master_url = os.getenv("MASTER_URL", "")
-    client = MasterClient(master_url, f"{HOST}:{PORT}")
+    client = MasterClient(master_url, "0.0.0.0:8080")
     await client.connect()
 
 # —————— точка входа ——————
@@ -62,4 +62,4 @@ async def start_master_client():
 if __name__ == "__main__":
     # Запускаем Uvicorn
     import uvicorn
-    uvicorn.run("server:app", host=HOST, port=PORT)
+    uvicorn.run("server:app", host="0.0.0.0", port=8080)

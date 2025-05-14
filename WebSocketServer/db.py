@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_ADDR = os.getenv("DB_ADDR")
-
 class Database:
     def __init__(self):
         self.pool: asyncpg.Pool | None = None
