@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import Modal from 'react-bootstrap/Modal';
+import Button from 'react-bootstrap/Button';
 
 interface ChatMessage { id: number; text: string; }
 interface RoomsWsMsg {
@@ -17,6 +19,8 @@ export function ChatRoomPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
   const [routerLink, setRouterLink] = useState<string>('');
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage]   = useState<string>("");
   const roomsWsRef = useRef<WebSocket>(null);
   const chatWsRef  = useRef<WebSocket>(null);
   const navigate   = useNavigate();
@@ -38,6 +42,20 @@ export function ChatRoomPage() {
 
     // 1) Открываем WS к роутеру для работы с комнатами
     const roomsWs = new WebSocket(`ws://${routerLink}/rooms-ws`);
+
+    roomsWs.onerror = err => {
+      console.error("Rooms WS error", err);
+      setErrorMessage("Не удалось подключиться к серверу комнат");
+      setShowErrorModal(true);
+    };
+
+    roomsWs.onclose = ev => {
+      if (ev.code !== 1000) {  // не «нормальное» закрытие
+        setErrorMessage(`Соединение комнат разорвано (код ${ev.code})`);
+        setShowErrorModal(true);
+      }
+    };
+
     roomsWsRef.current = roomsWs;
 
     roomsWs.onopen = () => {
@@ -58,7 +76,21 @@ export function ChatRoomPage() {
       }
 
       if (msg.type === "join" && msg.wsUrl) {
+        console.log("Адрес сервера", msg.wsUrl);
         const chatWs = new WebSocket(msg.wsUrl.replace("0.0.0.0", window.location.hostname));
+        chatWs.onerror = err => {
+          console.error("Chat WS error", err);
+          setErrorMessage("Соединение чата было потеряно");
+          setShowErrorModal(true);
+        };
+
+        chatWs.onclose = ev => {
+          if (ev.code !== 1000) {
+            setErrorMessage(`Чат отключился (код ${ev.code})`);
+            setShowErrorModal(true);
+          }
+        };
+
         chatWsRef.current = chatWs;
 
         chatWs.onopen = () => {
@@ -120,6 +152,7 @@ export function ChatRoomPage() {
   };
 
   return (
+    <>
     <div className="bg-dark text-light min-vh-100 p-4 d-flex flex-column">
       {/* Кнопки */}
       <div className="d-flex justify-content-end mb-4">
@@ -174,5 +207,26 @@ export function ChatRoomPage() {
         </div>
       </div>
     </div>
+    <Modal
+      show={showErrorModal}
+      onHide={() => {
+        setShowErrorModal(false);
+        navigate("/");
+      }}
+      centered
+    >
+      <Modal.Header closeButton>
+        <Modal.Title>Ошибка соединения</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        <p>{errorMessage}</p>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="primary" onClick={() => { setErrorMessage(""); navigate("/"); }}>
+          На главную
+        </Button>
+      </Modal.Footer>
+    </Modal>
+    </>
   );
 }

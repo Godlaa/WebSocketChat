@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Modal from 'react-bootstrap/Modal';
+import Button from 'react-bootstrap/Button';
 
 interface Room { id: number; name: string; }
 
@@ -7,6 +9,8 @@ export function RoomsListPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newName, setNewName] = useState("");
   const [routerLink, setRouterLink] = useState<string>('');
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const wsRef = useRef<WebSocket>(null);
   const navigate = useNavigate();
 
@@ -41,6 +45,10 @@ export function RoomsListPage() {
         case "deleted":
           setRooms(r => r.filter(x => x.id !== msg.id));
           break;
+        case "joinError":
+          setErrorMessage(msg.error);
+          setShowErrorModal(true);
+          break;
       }
     };
     ws.onerror = console.error;
@@ -58,6 +66,7 @@ export function RoomsListPage() {
   };
 
   return (
+    <>
     <div className="bg-dark text-light min-vh-100 p-4">
       {/* Список комнат */}
       <div className="rounded border border-secondary p-4 mb-4">
@@ -103,5 +112,23 @@ export function RoomsListPage() {
         </div>
       </div>
     </div>
+    <Modal
+      show={showErrorModal}
+      onHide={() => setShowErrorModal(false)}
+      centered
+    >
+      <Modal.Header closeButton>
+        <Modal.Title>Ошибка входа в комнату</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        <p>{errorMessage}</p>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={() => { setShowErrorModal(false); setErrorMessage(""); }}>
+          Закрыть
+        </Button>
+      </Modal.Footer>
+    </Modal>
+    </>
   );
 }
