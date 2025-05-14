@@ -4,8 +4,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-# DB_ADDR = os.getenv("DB_ADDR")
-DB_ADDR = "postgresql://postgres:12345@localhost:5433/chatdb"
+DB_ADDR = os.getenv("DB_ADDR")
 class Database:
     def __init__(self):
         self.pool: asyncpg.Pool | None = None

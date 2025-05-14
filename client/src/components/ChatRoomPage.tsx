@@ -16,15 +16,28 @@ export function ChatRoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
+  const [routerLink, setRouterLink] = useState<string>('');
   const roomsWsRef = useRef<WebSocket>(null);
   const chatWsRef  = useRef<WebSocket>(null);
   const navigate   = useNavigate();
 
   useEffect(() => {
+    fetch('/config/routerConfig.json')  // file placed in public/data.json
+        .then(response => response.json())
+        .then(json => {
+          setRouterLink(`${json.routerIp}:${json.routerPort}`)
+        })
+        .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if(routerLink === ''){
+      return
+    }
     if (!roomId) return;
 
     // 1) Открываем WS к роутеру для работы с комнатами
-    const roomsWs = new WebSocket(`ws://localhost:5000/rooms-ws`);
+    const roomsWs = new WebSocket(`ws://${routerLink}/rooms-ws`);
     roomsWsRef.current = roomsWs;
 
     roomsWs.onopen = () => {
@@ -89,7 +102,7 @@ export function ChatRoomPage() {
       roomsWs.close();
       chatWsRef.current?.close();
     };
-  }, [roomId, navigate]);
+  }, [roomId, navigate, routerLink]);
 
   const sendMessage = () => {
     const chatWs = chatWsRef.current;

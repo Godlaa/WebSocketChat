@@ -12,6 +12,7 @@ export const pool = new Pool({
 });
 
 
+// Чтобы запускать без контейнера
 // import { Pool } from "pg";
 //
 // export const pool = new Pool({

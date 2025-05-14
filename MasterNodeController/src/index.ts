@@ -1,56 +1,15 @@
 import {pool} from "./db";
 import {Client} from "ssh2";
 import {QueryResult} from "pg";
+import {monitor} from "./monitoring";
 
-type GeneralConfig = {
+export type GeneralConfig = {
     DesiredWebSocketServerAmount: number,
     PrivateKeyPath: string,
+    RouterConfigPath: string,
 }
 
-const f = async () => {
-    const webSocketServers = await pool.query(`
-        select *
-        from "startConfiguration" sc
-                 inner join "startNodes" sn on sc."nodeId" = sn.id
-        where type = 'WebSocketServer'`
-    );
-
-    const router = await pool.query(`
-        select *
-        from "startConfiguration" sc
-                 inner join "startNodes" sn on sc."nodeId" = sn.id
-        where type = 'Router' limit 1`
-    );
-    const nodes = await pool.query(`
-        select *
-        from "startNodes" `
-    );
-
-
-    // await upRouter(nodes.rows[0], null);
-
-    // const currentRouter = await pool.query(`
-    //     select *
-    //     from "currentConfiguration"
-    //     where type = 'Router'`
-    // );
-
-    // await downRouter(nodes.rows[0], currentRouter.rows[0]);
-
-    // await upWebSocketServer(nodes.rows[0], 6666);
-
-
-    // const currentWebSocketServer = await pool.query(`
-    //     select *
-    //     from "currentConfiguration"
-    //     where type = 'WebSocketServer'`
-    // );
-    //
-    // await downWebSocketServer(nodes.rows[0], currentWebSocketServer.rows[0])
-}
-
-// f()
-async function upWebSocketServers(nodes: QueryResult, config: GeneralConfig) {
+export async function upWebSocketServers(nodes: QueryResult, config: GeneralConfig) {
 
     for (let i = 0; i < config.DesiredWebSocketServerAmount; i++) {
         const result = await upWebSocketServer(
@@ -62,152 +21,203 @@ async function upWebSocketServers(nodes: QueryResult, config: GeneralConfig) {
     }
 }
 
-async function upWebSocketServer(node: any, config: GeneralConfig, port: number | null = null){
-    const conn = new Client();
+export async function upWebSocketServer(node: any, config: GeneralConfig, port: number | null = null) {
+    return new Promise<void>((resolve, reject) => {
+        const conn = new Client();
 
-    conn.on('ready', async () => {
         try {
-            const connStr = `"postgresql://${pool.options.user}:${pool.options.password}@${pool.options.host}:${pool.options.port}/${pool.options.database}"`;
-
-            const envVars = `-e DB_ADDR=${connStr} -e HOST="0.0.0.0" -e PORT="8080" -e MASTER_URL=""`
-            const ports = `-p 8080`
-            const createCommand = `docker run --rm -d ${ports} ${envVars} terik222/websocketchat1-ws-server`
-
-            let containerId = await execCommand(conn, createCommand);
+            conn.on('ready', async () => {
 
 
-            containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
-            console.log(`WebSocketServer is created ${containerId}:`);
+                if (port === null) {
+                    port = await getFreePort(conn);
+                }
 
 
-            const getPortCommand = `docker port ${containerId} 8080`
+                const connStr = `"postgresql://${pool.options.user}:${pool.options.password}@${pool.options.host}:${pool.options.port}/${pool.options.database}"`;
 
-            let containerPort = await execCommand(conn, getPortCommand);
-            const match = containerPort.match(/:(\d+)/);
-            containerPort =  match ? match[1]:'';
+                const envVars = `-e DB_ADDR=${connStr} -e HOST="${node.ip}" -e PORT="${port}" -e MASTER_URL=""`
+                const ports = `-p ${port}:8080`
+                const createCommand = `docker run --rm -d ${ports} ${envVars} terik222/websocketchat1-ws-server`
 
-            console.log(`WebSocketServer ${containerId} is created on port: ${containerPort}`);
-
-            await execCommand(conn, `ufw allow ${containerPort}`);
-            console.log(`port opened with ufw ${containerPort}`)
-
-            conn.end()
-
-            await pool.query(
-                `insert into "currentConfiguration"("nodeId", port, type, "containerId")
-                         values ($1, $2, 'WebSocketServer', $3)`, [node.id, containerPort, containerId]
-            )
+                let containerId = await execCommand(conn, createCommand);
+                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+                console.log(`container id: ${containerId} port: ${port} - WebSocketServer is created `);
 
 
+                conn.end()
+
+                await pool.query(
+                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                     values ($1, $2, 'WebSocketServer', $3)`, [node.id, port, containerId]
+                )
+
+                resolve()
+
+            })
+
+            conn.connect({
+                host: node.ip,
+                port: 22,
+                username: 'root',
+                privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+            });
         } catch (err) {
             console.error('Error:', err);
             conn.end();
+            reject()
         }
     })
-
-    conn.connect({
-        host: node.ip,
-        port: 22,
-        username: 'root',
-        privateKey: require('fs').readFileSync(config.PrivateKeyPath)
-    });
 }
 
-async function upRouter(node: any, config: GeneralConfig, port: number | null = null){
-    const conn = new Client();
-
-    conn.on('ready', async () => {
+export async function upRouter(node: any, config: GeneralConfig, port: number | null = null) {
+    return new Promise<void>((resolve, reject) => {
+        const conn = new Client();
         try {
-            const envVar = `-e PGHOST=${pool.options.host} -e PGPORT=${pool.options.port} -e PGDATABASE=${pool.options.database} -e PGUSER=${pool.options.user} -e PGPASSWORD=${pool.options.password} -e PORT="5000"`
-            const ports = `-p 5000`
-            const createCommand = `docker run -d --rm ${ports} ${envVar} terik222/websocketchat1-router`
+            conn.on('ready', async () => {
+                if (port === null) {
+                    port = await getFreePort(conn);
+                }
+
+                const envVar = `-e PGHOST=${pool.options.host} -e PGPORT=${pool.options.port} -e PGDATABASE=${pool.options.database} -e PGUSER=${pool.options.user} -e PGPASSWORD=${pool.options.password} -e PORT="5000"`
+                const ports = `-p ${port}:5000`
+                const createCommand = `docker run -d --rm ${ports} ${envVar} terik222/websocketchat1-router`
 
 
-            let containerId = await execCommand(conn, createCommand);
+                let containerId = await execCommand(conn, createCommand);
 
-            containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
-            console.log(`Router is created ${containerId}:`);
+                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+                console.log(`container id: ${containerId} port: ${port} - Router is created `);
 
+                conn.end()
 
-            let containerPort = await execCommand(conn, `docker port ${containerId} 5000`);
-            const match = containerPort.match(/:(\d+)/);
-            containerPort =  match ? match[1]:'';
+                await pool.query(
+                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                     values ($1, $2, 'Router', $3)`, [node.id, port, containerId]
+                )
 
-            console.log(`Router ${containerId} is created on port: ${containerPort}`);
-
-            await execCommand(conn, `ufw allow ${containerPort}`);
-            console.log(`port opened with ufw ${containerPort}`)
-
-            conn.end()
-
-            await pool.query(
-                `insert into "currentConfiguration"("nodeId", port, type, "containerId")
-                 values ($1, $2, 'Router', $3)`, [node.id, containerPort, containerId]
-            )
+                await updateRouterConfig(config)
+                resolve()
 
 
+            })
+
+            conn.connect({
+                host: node.ip,
+                port: 22,
+                username: 'root',
+                privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+            });
         } catch (err) {
             console.error('Error:', err);
             conn.end();
+            reject(err)
         }
     })
 
-    conn.connect({
-        host: node.ip,
-        port: 22,
-        username: 'root',
-        privateKey: require('fs').readFileSync(config.PrivateKeyPath)
-    });
+
 }
 
-async function downContainer(container:any, config:GeneralConfig){
-    const conn = new Client();
+export async function upClient(node: any, config: GeneralConfig, port: number | null = null) {
+    return new Promise<void>((resolve, reject) => {
+        const conn = new Client();
 
-    conn.on('ready', async () => {
         try {
+            conn.on('ready', async () => {
 
-            await execCommand(conn, `docker stop ${container.containerId}`);
-            console.log(`Container is down ${container.containerId}`)
+                if (port === null) {
+                    port = await getFreePort(conn);
+                }
 
-            await execCommand(conn, `ufw reject ${container.port}`);
-            console.log(`port closed with ufw ${container.port}`)
-
-            conn.end()
-
-            await pool.query(
-                `delete
-                         from "currentConfiguration"
-                         where id = $1`,
-                [container.id]
-            )
+                const volumes = `-v ${config.RouterConfigPath}:/usr/share/nginx/html/config`
+                const ports = `-p ${port}:80`
+                const createCommand = `docker run -d --rm ${ports} ${volumes} terik222/websocketchat1-client`
 
 
+                let containerId = await execCommand(conn, createCommand);
+                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+
+                console.log(`container id: ${containerId} port: ${port} - Client is created `);
+
+
+                conn.end()
+
+                await pool.query(
+                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                     values ($1, $2, 'Client', $3)`, [node.id, port, containerId]
+                )
+
+                await updateRouterConfig(config)
+
+                resolve()
+
+
+            })
+
+            conn.connect({
+                host: node.ip,
+                port: 22,
+                username: 'root',
+                privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+            });
         } catch (err) {
             console.error('Error:', err);
             conn.end();
+            reject()
         }
-    })
-
-    conn.connect({
-        host: container.ip,
-        port: 22,
-        username: 'root',
-        privateKey: require('fs').readFileSync(config.PrivateKeyPath)
     });
 }
 
-function execCommand(conn:Client, command:string):Promise<string> {
+export async function downContainer(container: any, config: GeneralConfig) {
+    return new Promise<void>((resolve, reject) => {
+        const conn = new Client();
+
+        conn.on('ready', async () => {
+            try {
+
+                await execCommand(conn, `docker stop ${container.containerId}`);
+                console.log(`container id: ${container.containerId} port: ${container.port} - ${container.type} is down `);
+
+
+                conn.end()
+
+                await pool.query(
+                    `delete
+                     from "currentConfiguration"
+                     where id = $1`,
+                    [container.id]
+                )
+
+                resolve()
+
+            } catch (err) {
+                console.error('Error:', err);
+                conn.end();
+                reject()
+            }
+        })
+
+        conn.connect({
+            host: container.ip,
+            port: 22,
+            username: 'root',
+            privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+        });
+    });
+}
+
+export function execCommand(conn: Client, command: string): Promise<string> {
     return new Promise((resolve, reject) => {
         conn.exec(command, (err, stream) => {
             if (err) return reject(err);
 
-            let stdout:string = '';
-            let stderr:string = '';
+            let stdout: string = '';
+            let stderr: string = '';
 
-            stream.on('close', (code:number, signal:any) => {
+            stream.on('close', (code: number, signal: any) => {
                 if (code === 0) resolve(stdout);
                 else reject(new Error(`Command failed with code ${code}: ${stderr}`));
-            }).on('data', (data:string) => {
+            }).on('data', (data: string) => {
                 stdout += data.toString();
             }).stderr.on('data', (data) => {
                 stderr += data.toString();
@@ -216,24 +226,78 @@ function execCommand(conn:Client, command:string):Promise<string> {
     });
 }
 
+async function getFreePort(conn: Client) {
+    let freePort = await execCommand(conn, `while :; do PORT=$(shuf -i 32000-45000 -n 1); ! ss -lntu | awk '{print $5}' | grep -q ":$PORT\\$" && echo $PORT && break; done`);
+    return parseInt(freePort, 10)
+}
 
+
+async function updateRouterConfig(config: GeneralConfig) {
+    return new Promise<void>((resolve, reject) => {
+
+        const f = async () => {
+            try {
+                const conn = new Client();
+                const router = await pool.query(`
+                    select *
+                    from "currentConfiguration" sc
+                             inner join "currentNodes" sn on sc."nodeId" = sn.id
+                    where type = 'Router' `
+                );
+
+                const client = await pool.query(`
+                    select *
+                    from "currentConfiguration" sc
+                             inner join "currentNodes" sn on sc."nodeId" = sn.id
+                    where type = 'Client' `
+                );
+
+                if (router.rows.length === 0 || client.rows.length === 0) {
+                    resolve()
+                    return
+                }
+
+                const node = client.rows[0];
+                conn.on('ready', async () => {
+                    const obj = {routerIp: router.rows[0].ip, routerPort: router.rows[0].port};
+                    const jsonString = JSON.stringify(obj);
+
+                    let status = await execCommand(conn, `echo '${jsonString}' > ${config.RouterConfigPath}/routerConfig.json`);
+                    console.log('Updated router config')
+                    resolve()
+                })
+
+                conn.connect({
+                    host: node.ip,
+                    port: 22,
+                    username: 'root',
+                    privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+                });
+
+
+            } catch (e) {
+                reject()
+            }
+        }
+        f()
+
+    })
+}
 
 async function upCluster() {
-    await downCluster();
-    console.log('0000000000')
+    console.log('MasterNodeController started')
 
-    await initializeDb()
+    await downCluster()
 
-    console.log('1111111')
+    const nodeMap = await initializeDb()
+
     const currentNodes = await pool.query(`
         select *
         from "currentNodes" `
     );
 
-    console.log('2222222')
     const config = await getGeneralConfig();
 
-    console.log('3333333')
     await upRouter(
         currentNodes.rows[
             Math.floor(Math.random() * currentNodes.rows.length)
@@ -241,22 +305,51 @@ async function upCluster() {
         config
     );
 
-    console.log('444444', config)
+    const result = await upClientFromConfig(nodeMap, config);
+
+    if (!result) {
+        await upClient(currentNodes.rows[
+                Math.floor(Math.random() * currentNodes.rows.length)
+                ],
+            config)
+    }
+
     await upWebSocketServers(currentNodes, config);
 
+    console.log('cluster is up')
+    monitor()
+}
+
+async function upClientFromConfig(nodeMap: any, config: GeneralConfig) {
+    const startClientConfig = await pool.query(`
+        select n.id, c.port
+        from "startConfiguration" c
+                 inner join "startNodes" n on c."nodeId" = n.id
+        where type = 'Client'`
+    );
+    if (startClientConfig.rows.length === 0) {
+        return false
+    }
+    const currentClientNode = await pool.query(`
+        select *
+        from "currentNodes"
+        where id = $1`, [nodeMap[startClientConfig.rows[0].id]]
+    );
+    await upClient(currentClientNode.rows[0], config, startClientConfig.rows[0].port)
+    return true;
 }
 
 
-
 async function initializeDb() {
-    const startNodes = await pool.query(`
-        select *
-        from "startNodes" `
-    );
-
     const startGeneralConfig = await pool.query(`
         select *
         from "startGeneralConfig" `
+    );
+
+
+    const startNodes = await pool.query(`
+        select *
+        from "startNodes"`
     );
 
     await pool.query(`
@@ -264,11 +357,19 @@ async function initializeDb() {
         `
     );
 
+    const nodeMap: any = {}
     for (const node of startNodes.rows) {
-        await pool.query(
+
+        const nodeId = await pool.query(
             `insert into "currentNodes"(ip, "WebSocketServerCreationPriority", "isActive")
-             values ($1, 1, true)`, [node.ip]
+             values ($1, 1, true) on conflict do nothing
+                 returning id `, [node.ip]
         )
+        const oldNodeId: string = node.id
+        if (nodeId.rows.length > 0) {
+            nodeMap[oldNodeId] = nodeId.rows[0].id
+        }
+
     }
 
     for (const row of startGeneralConfig.rows) {
@@ -278,41 +379,51 @@ async function initializeDb() {
         )
     }
 
+
+    return nodeMap;
 }
 
-
-
-async function getGeneralConfig(): Promise<GeneralConfig> {
-    const currentGeneralConfig = await pool.query(`
+export async function getGeneralConfig(): Promise<GeneralConfig> {
+    let generalConfig = await pool.query(`
         select *
         from "currentGeneralConfig" `
     );
 
-    const config = {
-        'DesiredWebSocketServerAmount': currentGeneralConfig.rows.find(obj => obj.key === 'DesiredWebSocketServerAmount').value,
-        'PrivateKeyPath': currentGeneralConfig.rows.find(obj => obj.key === 'PrivateKeyPath').value,
+    if (generalConfig.rows.length === 0) {
+        generalConfig = await pool.query(`
+            select *
+            from "startGeneralConfig" `
+        );
     }
-    return config
+
+    return {
+        'DesiredWebSocketServerAmount': generalConfig.rows.find(obj => obj.key === 'DesiredWebSocketServerAmount').value,
+        'PrivateKeyPath': generalConfig.rows.find(obj => obj.key === 'PrivateKeyPath').value,
+        'RouterConfigPath': generalConfig.rows.find(obj => obj.key === 'RouterConfigPath').value,
+    }
+
+
 }
 
 
-async function downCluster(){
+async function downCluster() {
+
     const containers = await pool.query(`
-        select *
+        select sc.id, sc."containerId", sc.port, sn.ip, sc.type
         from "currentConfiguration" sc
                  inner join "currentNodes" sn on sc."nodeId" = sn.id `
     );
 
     const config = await getGeneralConfig();
 
+
+    const promises = []
     for (const container of containers.rows) {
-        await downContainer(container, config)
+        promises.push(downContainer(container, config))
     }
+
+    await Promise.all(promises)
 }
 
 
-
-// downCluster()
-
-console.log('container started')
 upCluster()

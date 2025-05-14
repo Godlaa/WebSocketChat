@@ -6,7 +6,7 @@ services:
     ports:
       - "6000:6000"
     environment:
-      PGHOST: '192.168.1.195'
+      PGHOST: '192.168.0.114'
       PGPORT: "5433"
       PGDATABASE: chatdb
       PGUSER: postgres
