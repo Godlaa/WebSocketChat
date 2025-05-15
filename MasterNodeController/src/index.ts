@@ -259,12 +259,17 @@ async function updateRouterConfig(config: GeneralConfig) {
 
                 const node = client.rows[0];
                 conn.on('ready', async () => {
-                    const obj = {routerIp: router.rows[0].ip, routerPort: router.rows[0].port};
-                    const jsonString = JSON.stringify(obj);
+                    try {
+                        const obj = {routerIp: router.rows[0].ip, routerPort: router.rows[0].port};
+                        const jsonString = JSON.stringify(obj);
 
-                    let status = await execCommand(conn, `echo '${jsonString}' > ${config.RouterConfigPath}/routerConfig.json`);
-                    console.log('Updated router config')
-                    resolve()
+                        let status = await execCommand(conn, `echo '${jsonString}' > ${config.RouterConfigPath}/routerConfig.json`);
+                        console.log('Updated router config')
+                        resolve()
+                    } catch (e) {
+                        resolve()
+                    }
+
                 })
 
                 conn.connect({
@@ -276,7 +281,7 @@ async function updateRouterConfig(config: GeneralConfig) {
 
 
             } catch (e) {
-                reject()
+                resolve()
             }
         }
         f()
