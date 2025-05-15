@@ -2,6 +2,7 @@ import {pool} from "./db";
 import {Client} from "ssh2";
 import {QueryResult} from "pg";
 import {monitor} from "./monitoring";
+import {clearInterval} from "node:timers";
 
 export type GeneralConfig = {
     DesiredWebSocketServerAmount: number,
@@ -358,7 +359,15 @@ async function upCluster() {
     await upWebSocketServers(currentNodes, config);
 
     console.log('cluster is up')
-    monitor()
+    const intervalId = monitor()
+    process.on('SIGINT', async () => {
+        console.log('\nCaught Ctrl+C (SIGINT), performing cleanup...');
+        clearInterval(intervalId)
+        await downCluster()
+        process.exit(0);
+    });
+
+
 }
 
 async function upClientFromConfig(nodeMap: any, config: GeneralConfig) {
@@ -477,9 +486,3 @@ async function downCluster() {
 
 upCluster()
 
-process.on('SIGINT', async () => {
-    console.log('\nCaught Ctrl+C (SIGINT), performing cleanup...');
-
-    await downCluster()
-    process.exit(0);
-});

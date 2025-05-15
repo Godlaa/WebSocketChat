@@ -3,8 +3,8 @@ import {Client} from "ssh2";
 import {QueryResult} from "pg";
 import {getGeneralConfig, GeneralConfig, execCommand, upRouter, upClient, upWebSocketServer} from "./index";
 
-export async function monitor() {
-    setInterval(checkAll, 10000);
+export function monitor() {
+    return setInterval(checkAll, 10000);
 }
 
 async function checkAll() {
