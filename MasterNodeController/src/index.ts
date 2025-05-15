@@ -27,33 +27,37 @@ export async function upWebSocketServer(node: any, config: GeneralConfig, port: 
 
         try {
             conn.on('ready', async () => {
+                try {
+
+                    if (port === null) {
+                        port = await getFreePort(conn);
+                    }
 
 
-                if (port === null) {
-                    port = await getFreePort(conn);
+                    const connStr = `"postgresql://${pool.options.user}:${pool.options.password}@${pool.options.host}:${pool.options.port}/${pool.options.database}"`;
+
+                    const envVars = `-e DB_ADDR=${connStr} -e HOST="${node.ip}" -e PORT="${port}" -e MASTER_URL=""`
+                    const ports = `-p ${port}:8080`
+                    const createCommand = `docker run --rm -d ${ports} ${envVars} terik222/websocketchat1-ws-server`
+
+                    let containerId = await execCommand(conn, createCommand);
+                    containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+                    console.log(`container id: ${containerId} port: ${port} - WebSocketServer is created `);
+
+
+                    conn.end()
+
+                    await pool.query(
+                        `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                         values ($1, $2, 'WebSocketServer', $3)`, [node.id, port, containerId]
+                    )
+
+                    resolve()
+                } catch (err) {
+                    console.error('Error:', err);
+                    conn.end();
+                    resolve()
                 }
-
-
-                const connStr = `"postgresql://${pool.options.user}:${pool.options.password}@${pool.options.host}:${pool.options.port}/${pool.options.database}"`;
-
-                const envVars = `-e DB_ADDR=${connStr} -e HOST="${node.ip}" -e PORT="${port}" -e MASTER_URL=""`
-                const ports = `-p ${port}:8080`
-                const createCommand = `docker run --rm -d ${ports} ${envVars} terik222/websocketchat1-ws-server`
-
-                let containerId = await execCommand(conn, createCommand);
-                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
-                console.log(`container id: ${containerId} port: ${port} - WebSocketServer is created `);
-
-
-                conn.end()
-
-                await pool.query(
-                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
-                     values ($1, $2, 'WebSocketServer', $3)`, [node.id, port, containerId]
-                )
-
-                resolve()
-
             })
 
             conn.connect({
@@ -65,7 +69,7 @@ export async function upWebSocketServer(node: any, config: GeneralConfig, port: 
         } catch (err) {
             console.error('Error:', err);
             conn.end();
-            reject()
+            resolve()
         }
     })
 }
@@ -75,30 +79,35 @@ export async function upRouter(node: any, config: GeneralConfig, port: number | 
         const conn = new Client();
         try {
             conn.on('ready', async () => {
-                if (port === null) {
-                    port = await getFreePort(conn);
+                try {
+                    if (port === null) {
+                        port = await getFreePort(conn);
+                    }
+
+                    const envVar = `-e PGHOST=${pool.options.host} -e PGPORT=${pool.options.port} -e PGDATABASE=${pool.options.database} -e PGUSER=${pool.options.user} -e PGPASSWORD=${pool.options.password} -e PORT="5000"`
+                    const ports = `-p ${port}:5000`
+                    const createCommand = `docker run -d --rm ${ports} ${envVar} terik222/websocketchat1-router`
+
+
+                    let containerId = await execCommand(conn, createCommand);
+
+                    containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+                    console.log(`container id: ${containerId} port: ${port} - Router is created `);
+
+                    conn.end()
+
+                    await pool.query(
+                        `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                         values ($1, $2, 'Router', $3)`, [node.id, port, containerId]
+                    )
+
+                    await updateRouterConfig(config)
+                    resolve()
+                } catch (err) {
+                    console.error('Error:', err);
+                    conn.end();
+                    resolve()
                 }
-
-                const envVar = `-e PGHOST=${pool.options.host} -e PGPORT=${pool.options.port} -e PGDATABASE=${pool.options.database} -e PGUSER=${pool.options.user} -e PGPASSWORD=${pool.options.password} -e PORT="5000"`
-                const ports = `-p ${port}:5000`
-                const createCommand = `docker run -d --rm ${ports} ${envVar} terik222/websocketchat1-router`
-
-
-                let containerId = await execCommand(conn, createCommand);
-
-                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
-                console.log(`container id: ${containerId} port: ${port} - Router is created `);
-
-                conn.end()
-
-                await pool.query(
-                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
-                     values ($1, $2, 'Router', $3)`, [node.id, port, containerId]
-                )
-
-                await updateRouterConfig(config)
-                resolve()
-
 
             })
 
@@ -111,7 +120,7 @@ export async function upRouter(node: any, config: GeneralConfig, port: number | 
         } catch (err) {
             console.error('Error:', err);
             conn.end();
-            reject(err)
+            resolve()
         }
     })
 
@@ -124,33 +133,37 @@ export async function upClient(node: any, config: GeneralConfig, port: number | 
 
         try {
             conn.on('ready', async () => {
+                try {
+                    if (port === null) {
+                        port = await getFreePort(conn);
+                    }
 
-                if (port === null) {
-                    port = await getFreePort(conn);
+                    const volumes = `-v ${config.RouterConfigPath}:/usr/share/nginx/html/config`
+                    const ports = `-p ${port}:80`
+                    const createCommand = `docker run -d --rm ${ports} ${volumes} terik222/websocketchat1-client`
+
+
+                    let containerId = await execCommand(conn, createCommand);
+                    containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
+
+                    console.log(`container id: ${containerId} port: ${port} - Client is created `);
+
+
+                    conn.end()
+
+                    await pool.query(
+                        `insert into "currentConfiguration"("nodeId", port, type, "containerId")
+                         values ($1, $2, 'Client', $3)`, [node.id, port, containerId]
+                    )
+
+                    await updateRouterConfig(config)
+
+                    resolve()
+                } catch (err) {
+                    console.error('Error:', err);
+                    conn.end();
+                    resolve()
                 }
-
-                const volumes = `-v ${config.RouterConfigPath}:/usr/share/nginx/html/config`
-                const ports = `-p ${port}:80`
-                const createCommand = `docker run -d --rm ${ports} ${volumes} terik222/websocketchat1-client`
-
-
-                let containerId = await execCommand(conn, createCommand);
-                containerId = containerId.replace(/(\r\n|\n|\r)/g, '');
-
-                console.log(`container id: ${containerId} port: ${port} - Client is created `);
-
-
-                conn.end()
-
-                await pool.query(
-                    `insert into "currentConfiguration"("nodeId", port, type, "containerId")
-                     values ($1, $2, 'Client', $3)`, [node.id, port, containerId]
-                )
-
-                await updateRouterConfig(config)
-
-                resolve()
-
 
             })
 
@@ -163,7 +176,7 @@ export async function upClient(node: any, config: GeneralConfig, port: number | 
         } catch (err) {
             console.error('Error:', err);
             conn.end();
-            reject()
+            resolve()
         }
     });
 }
@@ -171,38 +184,40 @@ export async function upClient(node: any, config: GeneralConfig, port: number | 
 export async function downContainer(container: any, config: GeneralConfig) {
     return new Promise<void>((resolve, reject) => {
         const conn = new Client();
+        try {
+            conn.on('ready', async () => {
+                try {
+                    await execCommand(conn, `docker stop ${container.containerId}`);
 
-        conn.on('ready', async () => {
-            try {
+                    console.log(`container id: ${container.containerId} port: ${container.port} - ${container.type} is down `);
 
-                await execCommand(conn, `docker stop ${container.containerId}`);
-                console.log(`container id: ${container.containerId} port: ${container.port} - ${container.type} is down `);
+                    conn.end()
 
+                    await pool.query(
+                        `delete
+                         from "currentConfiguration"
+                         where id = $1`,
+                        [container.id]
+                    )
+                    resolve()
+                } catch (err) {
+                    console.error('Error:', err);
+                    conn.end();
+                    resolve()
+                }
+            })
 
-                conn.end()
-
-                await pool.query(
-                    `delete
-                     from "currentConfiguration"
-                     where id = $1`,
-                    [container.id]
-                )
-
-                resolve()
-
-            } catch (err) {
-                console.error('Error:', err);
-                conn.end();
-                reject()
-            }
-        })
-
-        conn.connect({
-            host: container.ip,
-            port: 22,
-            username: 'root',
-            privateKey: require('fs').readFileSync(config.PrivateKeyPath)
-        });
+            conn.connect({
+                host: container.ip,
+                port: 22,
+                username: 'root',
+                privateKey: require('fs').readFileSync(config.PrivateKeyPath)
+            });
+        } catch (err) {
+            console.error('Error:', err);
+            conn.end();
+            resolve()
+        }
     });
 }
 
@@ -353,9 +368,17 @@ async function initializeDb() {
     );
 
     await pool.query(`
-        truncate table "currentNodes", "currentConfiguration", "currentGeneralConfig" cascade
-        `
-    );
+        delete
+        from "currentGeneralConfig"
+    `)
+    await pool.query(`
+        delete
+        from "currentConfiguration"
+    `)
+    await pool.query(`
+        delete
+        from "currentNodes"
+    `)
 
     const nodeMap: any = {}
     for (const node of startNodes.rows) {

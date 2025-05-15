@@ -141,8 +141,14 @@ async function createRouter(config:GeneralConfig){
         select * from "currentConfiguration"  cc inner join "currentNodes" cn on cc."nodeId" = cn.id 
         where "isActive" = true and type = 'Router'`
     )
+    const currentNodes = await pool.query(`
+        select *
+        from "currentNodes" where "isActive" = true`
+    );
     if(router.rows.length === 0){
-        await upRouter(router, config)
+        await upRouter(currentNodes.rows[
+            Math.floor(Math.random() * currentNodes.rows.length)
+            ], config)
     }
 }
 
@@ -151,8 +157,15 @@ async function createClient(config:GeneralConfig){
         select * from "currentConfiguration"  cc inner join "currentNodes" cn on cc."nodeId" = cn.id 
         where "isActive" = true and type = 'Client'`
     )
+    const currentNodes = await pool.query(`
+        select *
+        from "currentNodes" where "isActive" = true`
+    );
+
     if(client.rows.length === 0){
-        await upClient(client, config)
+        await upClient(currentNodes.rows[
+            Math.floor(Math.random() * currentNodes.rows.length)
+            ], config)
     }
 }
 
