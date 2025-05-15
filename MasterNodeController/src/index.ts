@@ -60,6 +60,11 @@ export async function upWebSocketServer(node: any, config: GeneralConfig, port: 
                 }
             })
 
+            conn.on('error', (err) => {
+                console.error('Error:', err);
+                conn.end();
+                resolve()
+            });
             conn.connect({
                 host: node.ip,
                 port: 22,
@@ -110,7 +115,11 @@ export async function upRouter(node: any, config: GeneralConfig, port: number | 
                 }
 
             })
-
+            conn.on('error', (err) => {
+                console.error('Error:', err);
+                conn.end();
+                resolve()
+            });
             conn.connect({
                 host: node.ip,
                 port: 22,
@@ -166,7 +175,11 @@ export async function upClient(node: any, config: GeneralConfig, port: number | 
                 }
 
             })
-
+            conn.on('error', (err) => {
+                console.error('Error:', err);
+                conn.end();
+                resolve()
+            });
             conn.connect({
                 host: node.ip,
                 port: 22,
@@ -206,7 +219,11 @@ export async function downContainer(container: any, config: GeneralConfig) {
                     resolve()
                 }
             })
-
+            conn.on('error', (err) => {
+                console.error('Error:', err);
+                conn.end();
+                resolve()
+            });
             conn.connect({
                 host: container.ip,
                 port: 22,
@@ -286,7 +303,11 @@ async function updateRouterConfig(config: GeneralConfig) {
                     }
 
                 })
-
+                conn.on('error', (err) => {
+                    console.error('Error:', err);
+                    conn.end();
+                    resolve()
+                });
                 conn.connect({
                     host: node.ip,
                     port: 22,
