@@ -476,3 +476,10 @@ async function downCluster() {
 
 
 upCluster()
+
+process.on('SIGINT', async () => {
+    console.log('\nCaught Ctrl+C (SIGINT), performing cleanup...');
+
+    await downCluster()
+    process.exit(0);
+});

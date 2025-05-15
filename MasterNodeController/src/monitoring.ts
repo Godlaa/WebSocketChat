@@ -152,7 +152,6 @@ async function removeContainerFromDb(container: any) {
 
 
 async function createContainers(config: GeneralConfig) {
-    console.log('container creation started')
     createRouter(config)
 
     createClient(config)
