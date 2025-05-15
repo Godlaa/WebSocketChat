@@ -53,6 +53,7 @@ async function checkNode(node:any, config:GeneralConfig){
                 resolve(true)
                 return
             })
+            console.log(`connecting to node ${node.ip}`)
             conn.connect({
                 host: node.ip,
                 port: 22,
