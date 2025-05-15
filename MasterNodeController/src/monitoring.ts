@@ -53,6 +53,11 @@ async function checkNode(node:any, config:GeneralConfig){
                 resolve(true)
                 return
             })
+            conn.on('error', (err) => {
+                console.error(`Connection error on node ${node.ip}:`, err.message);
+                conn.end();
+                resolve(false);  // or reject(err) if you want to propagate the error
+            });
             console.log(`connecting to node ${node.ip}`)
             conn.connect({
                 host: node.ip,
