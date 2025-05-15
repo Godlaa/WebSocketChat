@@ -17,6 +17,7 @@ async function checkAll(){
 }
 
 async function checkNodes(config: GeneralConfig){
+    console.log('node checking started')
     const currentNodes = await pool.query(`
         select *
         from "currentNodes" where "isActive" = true`
@@ -48,6 +49,7 @@ async function checkNode(node:any, config:GeneralConfig){
     return new Promise<boolean>((resolve, reject) => {
         try{
             conn.on('ready', async () => {
+                console.log(`node is working ${node.ip}`)
                 resolve(true)
                 return
             })
@@ -71,6 +73,7 @@ async function checkNode(node:any, config:GeneralConfig){
 
 
 async function checkContainers(config:GeneralConfig){
+    console.log('container checking started')
     const containers = await pool.query(`
         select * from "currentConfiguration"  cc inner join "currentNodes" cn on cc."nodeId" = cn.id 
         where "isActive" = true`
@@ -127,7 +130,7 @@ async function removeContainerFromDb(container:any){
 
 
 async function createContainers(config:GeneralConfig){
-
+    console.log('container creation started')
     createRouter(config)
 
     createClient(config)
