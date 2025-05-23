@@ -359,9 +359,10 @@ async function upCluster() {
     await upWebSocketServers(currentNodes, config);
 
     console.log('cluster is up')
-    const intervalId = monitor()
+    intervalId = monitor()
     process.on('SIGINT', async () => {
         console.log('\nCaught Ctrl+C (SIGINT), performing cleanup...');
+        console.log(`destroying interval: ${intervalId}`)
         clearInterval(intervalId)
         await downCluster()
         process.exit(0);
@@ -483,6 +484,6 @@ async function downCluster() {
     await Promise.all(promises)
 }
 
-
+let intervalId:any;
 upCluster()
 
